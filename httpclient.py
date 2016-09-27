@@ -64,6 +64,8 @@ class HTTPClient(object):
         return data[2].split(":")[0]
     
     def get_path(self, data):
+        if len(data) < 4:
+            return "/"
         return data[3]
 
     def get_port(self, data):
