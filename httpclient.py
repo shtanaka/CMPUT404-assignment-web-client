@@ -21,6 +21,7 @@
 import sys
 import socket
 import re
+import utilsm as utils
 # you may use urllib to encode data appropriately
 import urllib
 import json
@@ -37,16 +38,7 @@ class HTTPResponse(object):
         return self.body
 
 class HTTPClient(object):
-    #def get_host_port(self,url):
     
-    def connect(self, host, port):
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        try:
-            sock.connect((host, port))
-            return sock
-        except socket.error:
-            return None
-
     def get_code(self, data):
         data = data.split("\r")
         line = data[0].split(" ")
@@ -55,25 +47,29 @@ class HTTPClient(object):
     def get_body(self, data):
         body = data.partition('\r\n\r\n')[2]
         return body
-    
-    def get_headers(self,data):
-        return None
 
     def get_host(self, data):
         return data[2].split(":")[0]
     
-    def get_path(self, data):
-        if len(data) < 4:
-            return "/"
-        return data[3]
-
     def get_port(self, data):
         r = data[2].split(":")
         if len(r) == 1 :
             return "80"
         return r[1]
 
-    def break_args(self, data):
+    def get_path(self, data):
+        if len(data) < 4:
+            return "/"
+        return data[3]
+
+    def break_url(self, data):
+        data = data.split("/", 3)
+        host = self.get_host(data)
+        path = self.get_path(data)
+        port = self.get_port(data)
+        return host, path, port
+    
+    def break_args_post(self, data):
         param = ""
         for i, v in data.iteritems(): 
             param += i + "=" + v + "&"
@@ -83,15 +79,22 @@ class HTTPClient(object):
         out += param
         out += "\r\n"
         return out
+    
+    
+    #socket stuff
+    def connect(self, host, port):
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            sock.connect((host, port))
+            return sock
+        except socket.error:
+            return None
 
-    def break_url(self, data):
-        data = data.split("/", 3)
-        host = self.get_host(data)
-        path = self.get_path(data)
-        port = self.get_port(data)
-        return host, path, port
-
-
+    def send_request(self, host, port, request):
+        sock = self.connect(host, int(port))
+        sock.sendall(request)
+        response = self.recvall(sock)
+        return response
     # read everything from the socket
     def recvall(self, sock):
         buffer = bytearray()
@@ -104,18 +107,19 @@ class HTTPClient(object):
                 done = not part
         return str(buffer)
 
+    
+    #GET
     def GET(self, url, args=None):
         host, path, port = self.break_url(url)
         request = "GET /" + path + " HTTP/1.1\n"
         request += "User-Agent: MyClient\r\n"
         request += "Host: " + host + "\r\n"
         request += "Accept: */*\r\n\r\n"
-        sock = self.connect(host, int(port))
-        sock.sendall(request)
-        body = self.recvall(sock)
+        body = response = self.send_request(host, int(port), request)
         code = self.get_code(body)
         return HTTPResponse(code, body)
 
+    #POST
     def POST(self, url, args=None):
         host, path, port = self.break_url(url)
         request = "POST /" + path + " HTTP/1.1\n"
@@ -123,23 +127,24 @@ class HTTPClient(object):
         request += "Host: " + host + "\r\n"
         request += "Accept: */*\r\n"
         if args is not None:
-            request += self.break_args(args)
+            request += self.break_args_post(args)
         else:
             request += "\r\n"
-        print request
-        sock = self.connect(host, int(port))
-        sock.sendall(request)
-        response = self.recvall(sock)
+        response = self.send_request(host, int(port), request)
         body = self.get_body(response)
         code = self.get_code(response)
+        print request
+        print response
         return HTTPResponse(code, body)
 
+    
     def command(self, url, command="GET", args=None):
         if (command == "POST"):
             return self.POST( url, args )
         else:
             return self.GET( url, args )
     
+
 if __name__ == "__main__":
     client = HTTPClient()
     if (len(sys.argv) <= 1):
