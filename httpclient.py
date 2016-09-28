@@ -23,6 +23,7 @@ import socket
 import re
 # you may use urllib to encode data appropriately
 import urllib
+import json
 
 def help():
     print "httpclient.py [GET/POST] [URL]\n"
@@ -31,6 +32,9 @@ class HTTPResponse(object):
     def __init__(self, code=200, body=""):
         self.code = code
         self.body = body
+    
+    def __str__(self):
+        return self.body
 
 class HTTPClient(object):
     #def get_host_port(self,url):
@@ -39,7 +43,6 @@ class HTTPClient(object):
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
             sock.connect((host, port))
-            #sock.settimeout(10)
             return sock
         except socket.error:
             return None
@@ -50,12 +53,8 @@ class HTTPClient(object):
         return int(line[1])
 
     def get_body(self, data):
-        if "Content-Length: " in data :
-            clength = data.split("Content-Length: ") 
-            clength = clength[1].split("\n")[0]
-            body = data[-int(clength):]
-            return body
-        return ""
+        body = data.partition('\r\n\r\n')[2]
+        return body
     
     def get_headers(self,data):
         return None
@@ -74,6 +73,25 @@ class HTTPClient(object):
             return "80"
         return r[1]
 
+    def break_args(self, data):
+        param = ""
+        for i, v in data.iteritems(): 
+            param += i + "=" + v + "&"
+        param = param[:-1]
+        out = "Content-Length: "+ str(len(param)) + "\r\n"
+        out += "Content-Type: application/x-www-form-urlencoded\r\n\r\n"
+        out += param
+        out += "\r\n"
+        return out
+
+    def break_url(self, data):
+        data = data.split("/", 3)
+        host = self.get_host(data)
+        path = self.get_path(data)
+        port = self.get_port(data)
+        return host, path, port
+
+
     # read everything from the socket
     def recvall(self, sock):
         buffer = bytearray()
@@ -87,25 +105,33 @@ class HTTPClient(object):
         return str(buffer)
 
     def GET(self, url, args=None):
-        url = url.split("/", 3)
-        host = self.get_host(url)
-        path = self.get_path(url)
-        port = self.get_port(url)
+        host, path, port = self.break_url(url)
         request = "GET /" + path + " HTTP/1.1\n"
+        request += "User-Agent: MyClient\r\n"
         request += "Host: " + host + "\r\n"
-        request += "Connection: keep-alive\r\n"
-        request += "User-Agent: MyClient\r\n\n"
+        request += "Accept: */*\r\n\r\n"
         sock = self.connect(host, int(port))
         sock.sendall(request)
-        response = self.recvall(sock)
-        code = self.get_code(response)
-        #body = self.get_body(response)
-        body = response
+        body = self.recvall(sock)
+        code = self.get_code(body)
         return HTTPResponse(code, body)
 
     def POST(self, url, args=None):
-        code = 500
-        body = "POST"
+        host, path, port = self.break_url(url)
+        request = "POST /" + path + " HTTP/1.1\n"
+        request += "User-Agent: MyClient\r\n"
+        request += "Host: " + host + "\r\n"
+        request += "Accept: */*\r\n"
+        if args is not None:
+            request += self.break_args(args)
+        else:
+            request += "\r\n"
+        print request
+        sock = self.connect(host, int(port))
+        sock.sendall(request)
+        response = self.recvall(sock)
+        body = self.get_body(response)
+        code = self.get_code(response)
         return HTTPResponse(code, body)
 
     def command(self, url, command="GET", args=None):
@@ -116,11 +142,12 @@ class HTTPClient(object):
     
 if __name__ == "__main__":
     client = HTTPClient()
-    command = "GET"
     if (len(sys.argv) <= 1):
         help()
         sys.exit(1)
     elif (len(sys.argv) == 3):
         print client.command( sys.argv[2], sys.argv[1] )
+    elif (len(sys.argv) == 2):
+        print client.command( sys.argv[1] )
     else:
-        print client.command( sys.argv[1] )   
+        print client.command( sys.argv[2], sys.argv[1], sys.argv[3] )   
